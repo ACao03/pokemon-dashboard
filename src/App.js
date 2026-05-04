@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { motion } from "framer-motion";
 
-const API = "https://pokemon-backend-frsh.onrender.com";
+const API = "http://localhost:3000";
 const socket = io(API);
 
 function App() {
