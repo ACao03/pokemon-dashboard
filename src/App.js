@@ -15,9 +15,7 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [history, setHistory] = useState([]);
   const prevStock = useRef({});
-
-  // sound
-  const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+  const audio = useRef(new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg"));
 
   useEffect(() => {
     fetch(`${API}/api/products`)
@@ -28,7 +26,7 @@ function App() {
       // detect new restocks → play sound
       data.forEach(p => {
         if (p.inStock && !prevStock.current[p.tcin]) {
-          audio.play().catch(() => {});
+          audio.current.play().catch(() => {});
         }
         prevStock.current[p.tcin] = p.inStock;
       });
