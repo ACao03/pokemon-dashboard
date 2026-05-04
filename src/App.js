@@ -14,6 +14,7 @@ function App() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [history, setHistory] = useState([]);
+  const [selectedRetailer, setSelectedRetailer] = useState("all");
   const prevStock = useRef({});
   const audio = useRef(new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg"));
 
@@ -25,10 +26,10 @@ function App() {
     socket.on("update", (data) => {
       // detect new restocks → play sound
       data.forEach(p => {
-        if (p.inStock && !prevStock.current[p.tcin]) {
+        if (p.inStockCount > 0 && !prevStock.current[p.title]) {
           audio.current.play().catch(() => {});
         }
-        prevStock.current[p.tcin] = p.inStock;
+        prevStock.current[p.title] = p.inStockCount;
       });
 
       setProducts(data);
@@ -37,22 +38,17 @@ function App() {
     return () => socket.off("update");
   }, []);
 
-  async function loadHistory(tcin) {
-    const res = await fetch(`${API}/api/history/${tcin}`);
+  async function loadHistory(productTitle) {
+    const res = await fetch(`${API}/api/history/${encodeURIComponent(productTitle)}`);
     const data = await res.json();
 
-    setHistory(
-      data.map(p => ({
-        time: new Date(p.time).toLocaleTimeString(),
-        stock: p.inStock ? 1 : 0
-      }))
-    );
+    setHistory(data);
   }
 
   const filtered = products
     .filter(p => {
-      if (filter === "in") return p.inStock;
-      if (filter === "out") return !p.inStock;
+      if (filter === "in") return p.inStockCount > 0;
+      if (filter === "out") return p.inStockCount === 0;
       return true;
     })
     .filter(p =>
@@ -99,48 +95,76 @@ function App() {
       <div style={styles.grid}>
         {filtered.map(p => (
           <motion.div
-            key={p.tcin}
+            key={p.title}
             whileHover={{ scale: 1.02, y: -5 }}
             whileTap={{ scale: 0.98 }}
             style={{
               ...styles.card,
-              borderColor: p.inStock ? "rgba(0,255,136,0.6)" : "rgba(255,68,68,0.3)",
-              background: p.inStock 
+              borderColor: p.inStockCount > 0 ? "rgba(0,255,136,0.6)" : "rgba(255,68,68,0.3)",
+              background: p.inStockCount > 0
                 ? "rgba(0,255,136,0.08)" 
                 : "rgba(255,68,68,0.04)"
             }}
             onClick={() => {
               setSelected(p);
-              loadHistory(p.tcin);
+              loadHistory(p.title);
             }}
           >
             <div>
               <h3 style={styles.cardTitle}>{p.title}</h3>
               <p style={{
                 ...styles.cardStatus,
-                color: p.inStock ? "#00ff88" : "#ff4444"
+                color: p.inStockCount > 0 ? "#00ff88" : "#ff4444"
               }}>
-                {p.inStock ? "● IN STOCK" : "● OUT OF STOCK"}
+                ● {p.inStockCount}/{p.totalRetailers} IN STOCK
               </p>
-              <p style={styles.cardTime}>Last checked: {p.lastChecked}</p>
+              
+              {/* Retailer badges */}
+              <div style={styles.retailerBadges}>
+                {p.retailers.map(r => (
+                  <span
+                    key={r.retailer}
+                    style={{
+                      ...styles.badge,
+                      background: r.inStock ? "rgba(0,255,136,0.2)" : "rgba(255,68,68,0.1)",
+                      color: r.inStock ? "#00ff88" : "#999"
+                    }}
+                  >
+                    {r.retailer} {r.price !== "N/A" && `$${r.price}`}
+                  </span>
+                ))}
+              </div>
+
+              {/* Best price */}
+              {p.bestPrice && (
+                <p style={styles.bestPrice}>
+                  Best: ${p.bestPrice.price} @ {p.bestPrice.retailer}
+                </p>
+              )}
             </div>
 
-            <a 
-              href={p.link} 
-              target="_blank" 
-              rel="noreferrer"
-              style={styles.cardLink}
-              onMouseEnter={(e) => {
-                e.target.style.background = "rgba(0,255,136,0.25)";
-                e.target.style.boxShadow = "0 4px 12px rgba(0,255,136,0.2)";
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = "rgba(0,255,136,0.15)";
-                e.target.style.boxShadow = "none";
-              }}
-            >
-              View on Target →
-            </a>
+            {/* Links */}
+            <div style={styles.links}>
+              {p.links.map(link => (
+                <a
+                  key={link.retailer}
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={styles.cardLink}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = "rgba(0,255,136,0.25)";
+                    e.target.style.boxShadow = "0 4px 12px rgba(0,255,136,0.2)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = "rgba(0,255,136,0.15)";
+                    e.target.style.boxShadow = "none";
+                  }}
+                >
+                  {link.retailer} →
+                </a>
+              ))}
+            </div>
           </motion.div>
         ))}
       </div>
@@ -154,28 +178,47 @@ function App() {
         >
           <h2 style={styles.chartTitle}>{selected.title}</h2>
           <p style={{ color: "#999", marginBottom: 20, fontSize: 13 }}>
-            Stock history (last 50 checks)
+            Availability history across {selected.totalRetailers} retailers
           </p>
 
-          <LineChart width={Math.min(window.innerWidth - 60, 900)} height={300} data={history}>
-            <XAxis dataKey="time" stroke="#444" />
-            <YAxis domain={[0, 1]} stroke="#444" />
-            <Tooltip 
-              contentStyle={{ 
-                background: "#1a1a2e", 
-                border: "1px solid #00ff88",
-                borderRadius: 8
-              }}
-            />
-            <Line
-              type="monotone"
-              dataKey="stock"
-              stroke="#00ff88"
-              strokeWidth={3}
-              dot={false}
-              isAnimationActive={true}
-            />
-          </LineChart>
+          {/* Retailer details */}
+          <div style={styles.retailerDetails}>
+            {selected.retailers.map(r => (
+              <div key={r.retailer} style={styles.retailerDetail}>
+                <span style={{
+                  color: r.inStock ? "#00ff88" : "#999",
+                  fontWeight: 600
+                }}>
+                  {r.inStock ? "✓" : "✗"} {r.retailer}
+                </span>
+                <span style={{ color: "#666", marginLeft: 10 }}>
+                  {r.price !== "N/A" ? `$${r.price}` : "N/A"}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {history.length > 0 && (
+            <LineChart width={Math.min(window.innerWidth - 60, 900)} height={300} data={history}>
+              <XAxis dataKey="time" stroke="#444" />
+              <YAxis domain={[0, 1]} stroke="#444" />
+              <Tooltip 
+                contentStyle={{ 
+                  background: "#1a1a2e", 
+                  border: "1px solid #00ff88",
+                  borderRadius: 8
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="inStockCount"
+                stroke="#00ff88"
+                strokeWidth={3}
+                dot={false}
+                isAnimationActive={true}
+              />
+            </LineChart>
+          )}
         </motion.div>
       )}
     </div>
@@ -296,6 +339,30 @@ const styles = {
     marginBottom: 12,
     flex: 1
   },
+  retailerBadges: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8
+  },
+  badge: {
+    padding: "4px 10px",
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 500,
+    whiteSpace: "nowrap"
+  },
+  bestPrice: {
+    fontSize: 13,
+    color: "#00ff88",
+    fontWeight: 600,
+    margin: "8px 0 0 0"
+  },
+  links: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8
+  },
   cardLink: {
     display: "inline-block",
     padding: "8px 16px",
@@ -323,6 +390,19 @@ const styles = {
     fontWeight: 600,
     marginBottom: 20,
     color: "#00ff88"
+  },
+  retailerDetails: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+    gap: 15,
+    marginBottom: 30,
+    padding: "15px 0",
+    borderBottom: "1px solid rgba(0,255,136,0.2)"
+  },
+  retailerDetail: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4
   }
 };
 
