@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { motion } from "framer-motion";
 
-const API = process.env.REACT_APP_API_URL || "http://localhost:3000";
+const API = "https://pokemon-backend-frsh.onrender.com";
 const socket = io(API);
 
 function App() {
