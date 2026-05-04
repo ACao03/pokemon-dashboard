@@ -14,7 +14,6 @@ function App() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [history, setHistory] = useState([]);
-  const [selectedRetailer, setSelectedRetailer] = useState("all");
   const prevStock = useRef({});
   const audio = useRef(new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg"));
 
